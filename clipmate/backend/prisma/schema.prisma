@@ -1,0 +1,352 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CLIENT
+  BARBER
+  ADMIN
+  SELLER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  PREMIUM
+}
+
+enum ClientTier {
+  FREE
+  PLUS
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String?        @unique
+  phone          String         @unique
+  passwordHash   String
+  role           UserRole       @default(CLIENT)
+  name           String
+  avatarUrl      String?
+  locationLat    Float?
+  locationLng   Float?
+  city           String?
+  preferredLang  String         @default("ru")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  barber         Barber?
+  client         Client?
+  seller         Seller?
+  admin          Admin?
+
+  sentReviews    Review[]       @relation("ReviewAuthor")
+  receivedReviews Review[]      @relation("ReviewSubject")
+
+  bookings       Booking[]      @relation("ClientBookings")
+  paymentMethods PaymentMethod[]
+
+  notifications  Notification[]
+  aiSessions     AISession[]
+
+  @@index([locationLat, locationLng])
+  @@index([city])
+}
+
+model Barber {
+  id              String           @id @default(uuid())
+  userId          String           @unique
+  user            User             @relation(fields: [userId], references: [id])
+  bio             String?
+  isVerified      Boolean          @default(false)
+  subscriptionTier SubscriptionTier @default(FREE)
+  subscriptionEnd DateTime?
+  isAvailable     Boolean          @default(true)
+  avgRating       Float            @default(0)
+  totalReviews    Int              @default(0)
+  totalBookings   Int              @default(0)
+  commissionPct   Float            @default(15.0)
+  stripeAccountId String?
+
+  services        Service[]
+  schedule        Schedule[]
+  bookings        Booking[]        @relation("BarberBookings")
+  portfolio       PortfolioItem[]
+  marketItems     MarketItem[]
+  aiCredits       Int              @default(10)
+  aiCreditResetAt DateTime?
+  createdAt       DateTime         @default(now())
+
+  @@index([subscriptionTier])
+  @@index([avgRating])
+}
+
+model Service {
+  id        String  @id @default(uuid())
+  barberId  String
+  barber    Barber  @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  name      String
+  price     Float
+  duration  Int     // minutes
+  category  String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  bookingServices BookingService[]
+
+  @@index([barberId])
+}
+
+model Schedule {
+  id        String @id @default(uuid())
+  barberId  String
+  barber    Barber @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  dayOfWeek Int    // 0=Sunday, 6=Saturday
+  startTime String // "09:00"
+  endTime   String // "18:00"
+  isActive  Boolean @default(true)
+
+  @@index([barberId])
+}
+
+model PortfolioItem {
+  id        String  @id @default(uuid())
+  barberId  String
+  barber    Barber  @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  imageUrl  String
+  title     String?
+  style     String?
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([barberId])
+}
+
+model Client {
+  id       String     @id @default(uuid())
+  userId   String     @unique
+  user     User       @relation(fields: [userId], references: [id])
+  tier     ClientTier @default(FREE)
+  preferences Json?
+  aiCredits Int       @default(3)
+  aiCreditResetAt DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  clientId    String
+  client      User          @relation("ClientBookings", fields: [clientId], references: [id])
+  barberId    String
+  barber      Barber        @relation("BarberBookings", fields: [barberId], references: [id])
+  status      BookingStatus @default(PENDING)
+  startTime   DateTime
+  endTime     DateTime
+  totalPrice  Float
+  platformFee Float         @default(0)
+  barberPayout Float        @default(0)
+  notes       String?
+  cancelReason String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  services    BookingService[]
+  payment     Payment?
+  review      Review?
+
+  @@index([clientId])
+  @@index([barberId])
+  @@index([status])
+  @@index([startTime])
+}
+
+model BookingService {
+  id        String  @id @default(uuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+  priceAtBooking Float
+}
+
+model Review {
+  id        String  @id @default(uuid())
+  authorId  String
+  author    User    @relation("ReviewAuthor", fields: [authorId], references: [id])
+  subjectId String
+  subject   User    @relation("ReviewSubject", fields: [subjectId], references: [id])
+  bookingId String? @unique
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  rating    Int     // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([subjectId])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  bookingId     String?       @unique
+  booking       Booking?      @relation(fields: [bookingId], references: [id])
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  amount        Float
+  currency      String        @default("UZS")
+  status        PaymentStatus @default(PENDING)
+  stripePiId    String?
+  type          String        // BOOKING, SUBSCRIPTION, MARKETPLACE, AI_CREDIT
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+
+  subscription  Subscription?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Subscription {
+  id          String    @id @default(uuid())
+  userId      String
+  paymentId   String?   @unique
+  payment     Payment?  @relation(fields: [paymentId], references: [id])
+  tier        String    // PRO, PREMIUM, PLUS
+  role        String    // BARBER, CLIENT
+  status      String    @default("active") // active, cancelled, expired
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  stripeSubId String?
+  autoRenew   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model MarketItem {
+  id          String  @id @default(uuid())
+  sellerId    String
+  seller      Barber  @relation(fields: [sellerId], references: [id])
+  title       String
+  description String?
+  price       Float
+  currency    String  @default("UZS")
+  category    String
+  brand       String?
+  images      Json?
+  stock       Int     @default(0)
+  isActive    Boolean @default(true)
+  aiGenerated Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  marketOrders MarketOrderItem[]
+
+  @@index([category])
+  @@index([sellerId])
+}
+
+model MarketOrder {
+  id        String    @id @default(uuid())
+  clientId  String
+  status    String    @default("pending") // pending, paid, shipped, delivered
+  totalPrice Float
+  currency  String    @default("UZS")
+  address   String?
+  createdAt DateTime  @default(now())
+
+  items     MarketOrderItem[]
+  payment   Payment?
+}
+
+model MarketOrderItem {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     MarketOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      MarketItem  @relation(fields: [itemId], references: [id])
+  quantity  Int
+  priceAtOrder Float
+}
+
+model PaymentMethod {
+  id         String @id @default(uuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id])
+  type       String // card, ...
+  last4      String?
+  brand      String?
+  isDefault  Boolean @default(false)
+  stripePmId String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // BOOKING_CONFIRMED, REMINDER_24H, REMINDER_2H, REMINDER_30M, CANCELLED
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean  @default(false)
+  channel   String   @default("push") // push, sms, email
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model AISession {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // CHAT, STYLE_ADVICE, PRICE_OPTIMIZATION, MARKETING
+  messages  Json     // [{role, content}]
+  tokensUsed Int     @default(0)
+  costCredits Int    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Admin {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  level  String @default("moderator") // moderator, admin, superadmin
+}
+
+model Seller {
+  id          String @id @default(uuid())
+  userId      String @unique
+  user        User   @relation(fields: [userId], references: [id])
+  storeName   String
+  isVerified  Boolean @default(false)
+  commissionPct Float @default(10.0)
+  createdAt   DateTime @default(now())
+}

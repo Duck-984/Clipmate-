@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "ClipMate",
+    "slug": "clipmate",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0A0A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.clipmate.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A0A"
+      },
+      "package": "com.clipmate.app"
+    },
+    "plugins": [
+      "expo-location",
+      "expo-secure-store"
+    ]
+  }
+}

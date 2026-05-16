@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: clipmate
+      POSTGRES_USER: clipmate
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-clipmate_prod}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipmate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-clipmate_redis}
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports: ["127.0.0.1:4000:4000"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://clipmate:${DB_PASSWORD:-clipmate_prod}@postgres:5432/clipmate
+      REDIS_URL: redis://:${REDIS_PASSWORD:-clipmate_redis}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      PORT: 4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports: ["127.0.0.1:3001:3001"]
+    environment:
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:4000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
